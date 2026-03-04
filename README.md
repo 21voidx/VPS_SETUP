@@ -1,4 +1,4 @@
-# 📋 Dokumentasi Setup VPS — Lengkap
+# 📋 Dokumentasi Setup VPS
 
 > **Sistem:** Ubuntu 24.04 LTS  
 > **Dibuat:** Februari 2026  
