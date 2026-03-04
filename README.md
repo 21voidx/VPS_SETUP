@@ -806,9 +806,9 @@ LAPTOP                    GITLAB.COM / GITHUB.COM
   │                              │
   ├─── SSH (port 22) ──────────────────────────────► VPS PUBLIC IP
   │                              │ (CI/CD job trigger)
-  └─── Tailscale VPN (mesh) ──► │ ◄─────────────────► VPS TAILSCALE IP
-                                 │                          │
-                            ┌────┘                     ┌────┴────────────┐
+  └─── Tailscale VPN (mesh) ──►  │ ◄─────────────────► VPS TAILSCALE IP
+                                 │                           │
+                            ┌────┘                      ┌────┴────────────┐
                             │  Pipeline trigger         │      VPS        │
                             └──────────────────────────►│─────────────────│
                                                         │  Docker         │
