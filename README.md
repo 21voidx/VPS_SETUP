@@ -73,8 +73,9 @@ Menggunakan key-based authentication agar lebih aman dibanding password.
 
 ### Di Laptop (Local Machine)
 
-# Generate SSH key pair **(jika belum ada)**
+
 ```bash
+# Generate SSH key pair (jika belum ada)
 ssh-keygen -t ed25519 -C "laptop-void-vps"
 
 # Lihat public key yang akan di-copy ke VPS
