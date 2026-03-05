@@ -123,29 +123,13 @@ ssh void@IP_VPS
 
 Mengamankan SSH server agar tidak mudah di-brute force.
 
-### Edit konfigurasi SSH
-
+### Install SSH
 ```bash
-sudo nano /etc/ssh/sshd_config
+sudo apt update && sudo apt install openssh-server openssh-client -y
 ```
-
-**Ubah/tambahkan baris berikut:**
-
-```conf
-# Nonaktifkan login password (gunakan key saja)
-PasswordAuthentication no
-
-# Nonaktifkan login root via password (root hanya bisa via key)
-PermitRootLogin prohibit-password
-
-# Batasi auth attempts
-MaxAuthTries 3
-
-# Port default (bisa diganti untuk keamanan tambahan)
-Port 22
-
-# Aktifkan public key auth
-PubkeyAuthentication yes
+### Aktifkan agar mesin SSH otomatis menyala setiap kali server di-restart
+```bash
+sudo systemctl enable ssh
 ```
 
 ### Restart SSH
