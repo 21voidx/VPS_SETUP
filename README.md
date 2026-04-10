@@ -1,4 +1,4 @@
-# 📋 Dokumentasi Setup VPS
+# 📋 Dokumentasi Setup VPS — Lengkap
 
 > **Sistem:** Ubuntu 24.04 LTS  
 > **Dibuat:** Februari 2026  
@@ -17,7 +17,8 @@
 7. [Install k3s (Kubernetes)](#7-install-k3s-kubernetes)
 8. [Setup GitLab Runner](#8-setup-gitlab-runner)
 9. [Setup GitHub Actions Runner](#9-setup-github-actions-runner)
-10. [Referensi Perintah](#10-referensi-perintah)
+10. [Setup NFS — WSL2 Server & VPS Client](#10-setup-nfs--wsl2-server--vps-client)
+11. [Referensi Perintah](#11-referensi-perintah)
 
 ---
 
@@ -73,7 +74,6 @@ Menggunakan key-based authentication agar lebih aman dibanding password.
 
 ### Di Laptop (Local Machine)
 
-
 ```bash
 # Generate SSH key pair (jika belum ada)
 ssh-keygen -t ed25519 -C "laptop-void-vps"
@@ -123,13 +123,29 @@ ssh void@IP_VPS
 
 Mengamankan SSH server agar tidak mudah di-brute force.
 
-### Install SSH
+### Edit konfigurasi SSH
+
 ```bash
-sudo apt update && sudo apt install openssh-server openssh-client -y
+sudo nano /etc/ssh/sshd_config
 ```
-### Aktifkan agar mesin SSH otomatis menyala setiap kali server di-restart
-```bash
-sudo systemctl enable ssh
+
+**Ubah/tambahkan baris berikut:**
+
+```conf
+# Nonaktifkan login password (gunakan key saja)
+PasswordAuthentication no
+
+# Nonaktifkan login root via password (root hanya bisa via key)
+PermitRootLogin prohibit-password
+
+# Batasi auth attempts
+MaxAuthTries 3
+
+# Port default (bisa diganti untuk keamanan tambahan)
+Port 22
+
+# Aktifkan public key auth
+PubkeyAuthentication yes
 ```
 
 ### Restart SSH
@@ -704,7 +720,277 @@ sudo systemctl start github-runner
 
 ---
 
-## 10. Referensi Perintah
+## 10. Setup NFS — WSL2 Server & VPS Client
+
+NFS (Network File System) memungkinkan VPS me-mount direktori dari WSL2 di laptop lokal sebagai shared storage. Koneksi menggunakan jaringan Tailscale sehingga tidak perlu expose port NFS ke internet publik.
+
+**Topologi:**
+```
+WSL2 (laptop)  ──── Tailscale ────  VPS
+nfs-kernel-server                   nfs-common
+100.x.x.x (server)                  100.y.y.y (client)
+```
+
+> ⚠️ **Prasyarat:** Tailscale sudah aktif dan terhubung di kedua sisi (WSL2 & VPS). Jalankan `tailscale ip -4` di masing-masing sisi untuk mendapatkan IP Tailscale sebelum mulai.
+
+---
+
+### A. Setup di WSL2 (NFS Server)
+
+#### 1. Aktifkan Systemd di WSL2
+
+NFS server membutuhkan systemd. Pastikan sudah diaktifkan di WSL2.
+
+```bash
+# Cek apakah systemd sudah aktif
+ps -p 1 -o comm=
+# → jika output "systemd", sudah aktif. Jika "init", perlu diaktifkan.
+```
+
+Jika belum aktif, edit konfigurasi WSL:
+
+```bash
+sudo nano /etc/wsl.conf
+```
+
+Tambahkan:
+
+```ini
+[boot]
+systemd=true
+```
+
+Kemudian **restart WSL2** dari PowerShell/CMD Windows:
+
+```powershell
+wsl --shutdown
+wsl
+```
+
+#### 2. Install nfs-kernel-server
+
+```bash
+sudo apt update
+sudo apt install -y nfs-kernel-server
+```
+
+**Verifikasi:**
+
+```bash
+sudo systemctl status nfs-kernel-server
+nfsstat --version
+```
+
+#### 3. Buat Direktori yang Akan Di-share
+
+```bash
+# Buat direktori shared (sesuaikan path dengan kebutuhan)
+mkdir -p ~/nfs-share
+
+# Contoh: share direktori project
+# mkdir -p ~/projects/shared
+```
+
+#### 4. Konfigurasi /etc/exports
+
+```bash
+sudo nano /etc/exports
+```
+
+Tambahkan baris berikut (ganti `100.y.y.y` dengan **IP Tailscale VPS**):
+
+```exports
+# Format: <path> <client_ip>(<options>)
+/home/<user>/nfs-share  100.y.y.y(rw,sync,no_subtree_check,no_root_squash)
+```
+
+**Penjelasan opsi:**
+
+| Opsi | Keterangan |
+|---|---|
+| `rw` | Client bisa baca dan tulis |
+| `sync` | Tulis ke disk sebelum konfirmasi ke client (lebih aman) |
+| `no_subtree_check` | Nonaktifkan subtree checking, meningkatkan stabilitas |
+| `no_root_squash` | Root di client diperlakukan sebagai root di server |
+
+> ⚠️ **Keamanan:** Gunakan `root_squash` (default) jika VPS tidak sepenuhnya dipercaya. `no_root_squash` mempermudah operasi file tapi memberikan akses root penuh dari client.
+
+#### 5. Terapkan Konfigurasi Exports
+
+```bash
+# Export semua direktori dari /etc/exports
+sudo exportfs -arv
+
+# Verifikasi direktori yang di-export
+sudo exportfs -v
+```
+
+#### 6. Jalankan & Aktifkan NFS Server
+
+```bash
+sudo systemctl enable nfs-kernel-server
+sudo systemctl start nfs-kernel-server
+sudo systemctl status nfs-kernel-server
+```
+
+#### 7. Cek IP Tailscale WSL2
+
+```bash
+# Catat IP ini — dibutuhkan di sisi VPS
+tailscale ip -4
+# Contoh output: 100.x.x.x
+```
+
+---
+
+### B. Setup di VPS (NFS Client)
+
+#### 1. Install nfs-common
+
+```bash
+sudo apt update
+sudo apt install -y nfs-common
+```
+
+**Verifikasi:**
+
+```bash
+showmount --version
+```
+
+#### 2. Buat Mount Point
+
+```bash
+# Buat direktori tempat NFS akan di-mount
+sudo mkdir -p /mnt/wsl-share
+
+# Sesuaikan ownership jika perlu
+sudo chown void:void /mnt/wsl-share
+```
+
+#### 3. Test Mount Manual
+
+Sebelum setup otomatis, pastikan koneksi berhasil:
+
+```bash
+# Cek export yang tersedia dari WSL2 (ganti dengan IP Tailscale WSL2)
+showmount -e 100.x.x.x
+
+# Mount manual
+sudo mount -t nfs 100.x.x.x:/home/<user>/nfs-share /mnt/wsl-share
+
+# Verifikasi mount berhasil
+df -h | grep wsl-share
+ls /mnt/wsl-share
+```
+
+#### 4. Mount Otomatis via /etc/fstab
+
+Agar NFS ter-mount otomatis saat VPS boot:
+
+```bash
+sudo nano /etc/fstab
+```
+
+Tambahkan baris berikut di akhir file:
+
+```fstab
+# NFS mount dari WSL2 via Tailscale
+100.x.x.x:/home/<user>/nfs-share  /mnt/wsl-share  nfs  defaults,_netdev,nofail,soft,timeo=30  0  0
+```
+
+**Penjelasan opsi fstab:**
+
+| Opsi | Keterangan |
+|---|---|
+| `_netdev` | Tunggu jaringan sebelum mount saat boot |
+| `nofail` | Boot tetap lanjut meski mount gagal |
+| `soft` | Return error jika server tidak merespons (tidak hang) |
+| `timeo=30` | Timeout 3 detik per retry (unit: 1/10 detik) |
+
+**Test fstab tanpa reboot:**
+
+```bash
+sudo mount -a
+df -h | grep wsl-share
+```
+
+#### 5. Unmount
+
+```bash
+# Unmount manual jika diperlukan
+sudo umount /mnt/wsl-share
+
+# Paksa unmount jika sedang digunakan
+sudo umount -l /mnt/wsl-share
+```
+
+---
+
+### C. Troubleshooting NFS
+
+**Mount gagal — "Connection refused" atau timeout:**
+```bash
+# Di WSL2: pastikan NFS server berjalan
+sudo systemctl status nfs-kernel-server
+
+# Di WSL2: pastikan port NFS (2049) terbuka
+sudo ss -tlnp | grep 2049
+
+# Test koneksi dari VPS ke WSL2
+nc -zv 100.x.x.x 2049
+```
+
+**Mount gagal — "Access denied":**
+```bash
+# Di WSL2: cek apakah IP VPS sudah benar di /etc/exports
+sudo exportfs -v
+
+# Di WSL2: reload exports setelah perubahan
+sudo exportfs -arv
+sudo systemctl restart nfs-kernel-server
+```
+
+**WSL2 restart menyebabkan IP Tailscale berubah:**
+```bash
+# Di WSL2: cek IP Tailscale terkini
+tailscale ip -4
+
+# Update /etc/exports di WSL2 dengan IP baru
+sudo nano /etc/exports
+sudo exportfs -arv
+
+# Update /etc/fstab di VPS dengan IP baru
+sudo nano /etc/fstab
+sudo umount /mnt/wsl-share
+sudo mount -a
+```
+
+> 💡 **Tips:** Gunakan **Tailscale MagicDNS** untuk menghindari masalah IP berubah. Ganti IP Tailscale dengan hostname Tailscale (misal `mylaptop.tail12345.ts.net`) di `/etc/exports` dan `/etc/fstab`.
+
+---
+
+## 11. Referensi Perintah
+
+### NFS (WSL2 — Server)
+
+```bash
+sudo systemctl status nfs-kernel-server   # Cek status NFS server
+sudo systemctl restart nfs-kernel-server  # Restart NFS server
+sudo exportfs -arv                         # Reload & tampilkan semua exports
+sudo exportfs -v                           # Lihat exports yang aktif
+sudo exportfs -u 100.y.y.y:/path          # Unexport direktori tertentu
+```
+
+### NFS (VPS — Client)
+
+```bash
+showmount -e 100.x.x.x                    # Lihat exports dari server
+sudo mount -t nfs 100.x.x.x:/path /mnt/point  # Mount manual
+sudo umount /mnt/point                    # Unmount
+sudo mount -a                             # Mount semua entri di fstab
+df -h | grep nfs                          # Verifikasi NFS ter-mount
+```
 
 ### GitLab Runner
 
@@ -787,21 +1073,26 @@ sudo systemctl status k3s          # Status k3s
 ## Arsitektur Setup
 
 ```
-LAPTOP                    GITLAB.COM / GITHUB.COM
-  │                              │
-  ├─── SSH (port 22) ──────────────────────────────► VPS PUBLIC IP
-  │                              │ (CI/CD job trigger)
-  └─── Tailscale VPN (mesh) ──►  │ ◄─────────────────► VPS TAILSCALE IP
-                                 │                           │
-                            ┌────┘                      ┌────┴────────────┐
-                            │  Pipeline trigger         │      VPS        │
-                            └──────────────────────────►│─────────────────│
-                                                        │  Docker         │
-                                                        │  k3s            │
-                                                        │  GitLab Runner  │
-                                                        │  GitHub Runner  │
-                                                        │  UFW            │
-                                                        └─────────────────┘
+LAPTOP (WSL2)              GITLAB.COM / GITHUB.COM
+  │  nfs-kernel-server            │
+  │  Tailscale: 100.x.x.x         │
+  │                               │
+  ├─── SSH (port 22) ─────────────────────────────► VPS PUBLIC IP
+  │                               │ (CI/CD job trigger)
+  └─── Tailscale VPN (mesh) ─────►│◄──────────────► VPS TAILSCALE IP (100.y.y.y)
+         │  NFS (port 2049)        │                       │
+         └────────────────────────────────────────────────►│
+                                  │ Pipeline trigger   ┌───┴─────────────────┐
+                                  └───────────────────►│       VPS           │
+                                                       │─────────────────────│
+                                                       │  Docker             │
+                                                       │  k3s                │
+                                                       │  GitLab Runner      │
+                                                       │  GitHub Runner      │
+                                                       │  UFW                │
+                                                       │  nfs-common         │
+                                                       │  /mnt/wsl-share ◄── │── NFS mount
+                                                       └─────────────────────┘
 ```
 
 ---
