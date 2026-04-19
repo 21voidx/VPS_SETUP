@@ -126,7 +126,8 @@ Mengamankan SSH server agar tidak mudah di-brute force.
 ### Edit konfigurasi SSH
 
 ```bash
-sudo nano /etc/ssh/sshd_config
+sudo apt install openssh-server -y
+sudo nano /etc/ssh/ssh_config
 ```
 
 **Ubah/tambahkan baris berikut:**
