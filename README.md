@@ -15,10 +15,11 @@
 5. [Tailscale VPN Tunnel](#5-tailscale-vpn-tunnel)
 6. [Install Docker](#6-install-docker)
 7. [Install k3s (Kubernetes)](#7-install-k3s-kubernetes)
-8. [Setup GitLab Runner](#8-setup-gitlab-runner)
-9. [Setup GitHub Actions Runner](#9-setup-github-actions-runner)
-10. [Setup NFS — WSL2 Server & VPS Client](#10-setup-nfs--wsl2-server--vps-client)
-11. [Referensi Perintah](#11-referensi-perintah)
+8. [Install Helm](#8-install-helm)
+9. [Setup GitLab Runner](#9-setup-gitlab-runner)
+10. [Setup GitHub Actions Runner](#10-setup-github-actions-runner)
+11. [Setup NFS — WSL2 Server & VPS Client](#11-setup-nfs--wsl2-server--vps-client)
+12. [Referensi Perintah](#12-referensi-perintah)
 
 ---
 
@@ -369,7 +370,137 @@ kubectl get pods         # pastikan status Running
 
 ---
 
-## 8. Setup GitLab Runner
+
+## 8. Install Helm
+
+Helm adalah package manager untuk Kubernetes. Dengan Helm, aplikasi dapat dipasang, diperbarui, dan dihapus menggunakan **chart**, sehingga deployment tidak perlu selalu ditulis manual dalam banyak file YAML.
+
+> 💡 **Catatan:** Jalankan bagian ini setelah k3s dan `kubectl` berhasil digunakan, karena Helm akan membaca konfigurasi cluster dari `~/.kube/config`.
+
+### Install Helm via Script Resmi
+
+```bash
+# Download installer Helm resmi
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4
+
+# Beri permission eksekusi
+chmod 700 get_helm.sh
+
+# Jalankan installer
+./get_helm.sh
+
+# Hapus installer setelah selesai
+rm get_helm.sh
+```
+
+### Verifikasi Instalasi
+
+```bash
+# Cek versi Helm
+helm version
+
+# Pastikan kubectl masih terhubung ke cluster k3s
+kubectl get nodes
+
+# Cek konfigurasi Helm
+helm env
+```
+
+Jika `helm version` menampilkan versi Helm dan `kubectl get nodes` menampilkan node k3s dalam status `Ready`, berarti Helm sudah siap digunakan.
+
+### Setup Helm Completion Bash (Opsional)
+
+```bash
+# Install bash-completion jika belum tersedia
+sudo apt install -y bash-completion
+
+# Aktifkan autocomplete Helm
+helm completion bash | sudo tee /etc/bash_completion.d/helm > /dev/null
+source /etc/bash_completion.d/helm
+```
+
+### Konsep Dasar Helm
+
+| Istilah | Keterangan |
+|---|---|
+| Chart | Paket aplikasi Kubernetes berisi template manifest YAML |
+| Repository | Tempat menyimpan dan membagikan chart |
+| Release | Instance aplikasi yang dipasang dari sebuah chart |
+| Values | File konfigurasi untuk mengubah parameter chart |
+
+### Contoh Membuat dan Deploy Chart Lokal
+
+Contoh ini memakai chart lokal agar tidak bergantung pada repository eksternal.
+
+```bash
+# Buat chart baru
+helm create hello-helm
+
+# Cek struktur chart
+ls hello-helm
+
+# Validasi chart
+helm lint hello-helm
+
+# Render manifest tanpa deploy ke cluster
+helm template hello-helm ./hello-helm
+
+# Install chart ke namespace demo
+helm install hello-helm ./hello-helm \
+  --namespace demo \
+  --create-namespace
+
+# Verifikasi release Helm
+helm list -n demo
+helm status hello-helm -n demo
+
+# Verifikasi resource Kubernetes yang dibuat
+kubectl get all -n demo
+```
+
+### Upgrade atau Redeploy Chart
+
+```bash
+# Upgrade release jika sudah ada, atau install jika belum ada
+helm upgrade --install hello-helm ./hello-helm \
+  --namespace demo \
+  --create-namespace
+```
+
+### Uninstall Chart
+
+```bash
+# Hapus release Helm
+helm uninstall hello-helm -n demo
+
+# Hapus namespace demo jika tidak digunakan lagi
+kubectl delete namespace demo
+
+# Hapus folder chart lokal
+rm -rf hello-helm
+```
+
+### Contoh Menggunakan Helm Repository
+
+```bash
+# Tambahkan repository chart
+helm repo add bitnami https://charts.bitnami.com/bitnami
+
+# Update index repository
+helm repo update
+
+# Cari chart dari repository yang sudah ditambahkan
+helm search repo nginx
+
+# Lihat repository yang aktif
+helm repo list
+```
+
+> ⚠️ **Catatan:** Untuk deployment production, gunakan `values.yaml` agar konfigurasi chart lebih rapi dan mudah di-review.
+
+---
+
+## 9. Setup GitLab Runner
 
 GitLab Runner adalah agent yang menjalankan CI/CD pipeline dari GitLab. Runner akan berjalan di VPS dan mendengarkan job dari GitLab.com atau GitLab self-hosted.
 
@@ -526,7 +657,7 @@ sudo gitlab-runner unregister --all-runners
 
 ---
 
-## 9. Setup GitHub Actions Runner
+## 10. Setup GitHub Actions Runner
 
 GitHub Actions Self-Hosted Runner memungkinkan workflow GitHub Actions berjalan langsung di VPS, bukan di server GitHub.
 
@@ -721,7 +852,7 @@ sudo systemctl start github-runner
 
 ---
 
-## 10. Setup NFS — WSL2 Server & VPS Client
+## 11. Setup NFS — WSL2 Server & VPS Client
 
 NFS (Network File System) memungkinkan VPS me-mount direktori dari WSL2 di laptop lokal sebagai shared storage. Koneksi menggunakan jaringan Tailscale sehingga tidak perlu expose port NFS ke internet publik.
 
@@ -971,7 +1102,7 @@ sudo mount -a
 
 ---
 
-## 11. Referensi Perintah
+## 12. Referensi Perintah
 
 ### NFS (WSL2 — Server)
 
@@ -1069,6 +1200,25 @@ sudo systemctl restart k3s         # Restart k3s
 sudo systemctl status k3s          # Status k3s
 ```
 
+### Helm
+
+```bash
+helm version                                      # Cek versi Helm
+helm env                                          # Lihat konfigurasi Helm
+helm repo add <name> <repo-url>                   # Tambah repository chart
+helm repo update                                  # Update index repository
+helm repo list                                    # Lihat repository aktif
+helm search repo <keyword>                        # Cari chart di repository lokal Helm
+helm create <chart-name>                          # Buat struktur chart baru
+helm lint ./chart-dir                             # Validasi chart
+helm template <release-name> ./chart-dir          # Render manifest tanpa deploy
+helm install <release-name> <chart> -n <namespace> --create-namespace  # Install chart
+helm upgrade --install <release-name> <chart> -n <namespace> --create-namespace  # Upgrade/install chart
+helm list -A                                      # Lihat semua release di semua namespace
+helm status <release-name> -n <namespace>         # Detail status release
+helm uninstall <release-name> -n <namespace>      # Hapus release
+```
+
 ---
 
 ## Arsitektur Setup
@@ -1088,6 +1238,7 @@ LAPTOP (WSL2)              GITLAB.COM / GITHUB.COM
                                                        │─────────────────────│
                                                        │  Docker             │
                                                        │  k3s                │
+                                                       │  Helm               │
                                                        │  GitLab Runner      │
                                                        │  GitHub Runner      │
                                                        │  UFW                │
